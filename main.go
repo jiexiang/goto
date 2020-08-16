@@ -8,7 +8,7 @@ import (
 
 var (
 	listenAddr = flag.String("http", ":8080", "http listen address")
-	dataFile   = flag.String("file", "store.gob", "data store")
+	dataFile   = flag.String("file", "store.json", "data store")
 	hostname   = flag.String("host", "localhost:8080", "http host name")
 )
 
