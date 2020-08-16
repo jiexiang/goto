@@ -8,10 +8,12 @@ import (
 	"sync"
 )
 
+const saveQueueLength = 1000
+
 type URLStore struct {
 	urls map[string]string
 	mu   sync.RWMutex
-	file *os.File
+	save chan record
 }
 
 type record struct {
@@ -21,24 +23,39 @@ type record struct {
 func NewURLStore(filename string) *URLStore {
 	s := &URLStore{
 		urls: make(map[string]string),
+		save: make(chan record, saveQueueLength),
 	}
+	if err := s.load(filename); err != nil {
+		fmt.Println("load file error", err)
+	}
+	go s.saveLoop(filename)
+	return s
+}
+
+func (s *URLStore) saveLoop(filename string) {
 	f, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
 		fmt.Println("openFile error", err)
 	}
-	s.file = f
-	if err := s.load(); err != nil {
-		fmt.Println("load error", err)
+	defer f.Close()
+	e := gob.NewEncoder(f)
+	for {
+		r := <-s.save
+		if err := e.Encode(r); err != nil {
+			fmt.Println("save error", err)
+		}
 	}
-	return s
 }
 
 // 从 gob 文件中加载数据
-func (s *URLStore) load() (err error) {
-	if _, err = s.file.Seek(0, 0); err != nil {
+func (s *URLStore) load(filename string) (err error) {
+	f, err := os.Open(filename)
+	if err != nil {
 		return
 	}
-	d := gob.NewDecoder(s.file)
+	defer f.Close()
+
+	d := gob.NewDecoder(f)
 	for err == nil {
 		var r record
 		if err = d.Decode(&r); err == nil {
@@ -77,17 +94,13 @@ func (s *URLStore) Put(url string) string {
 	for {
 		key := genKey(s.Count())
 		if ok := s.Set(key, url); ok {
-			if err := s.save(key, url); err != nil {
-				fmt.Println("save error", err)
+			r := record{
+				Key: key,
+				URL: url,
 			}
+			s.save <- r
 			return key
 		}
 	}
-	return ""
-}
-
-// 存储到文件
-func (s *URLStore) save(key, url string) error {
-	e := gob.NewEncoder(s.file)
-	return e.Encode(record{key, url})
+	panic("??")
 }

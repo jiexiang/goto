@@ -1,23 +1,25 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"net/http"
 )
 
-const AddForm = `
-<form method="POST" action="/add">
-URL: <input type="text" name="url">
-<input type="submit" value="Add">
-</form>
-`
+var (
+	listenAddr = flag.String("http", ":8080", "http listen address")
+	dataFile   = flag.String("file", "store.gob", "data store")
+	hostname   = flag.String("host", "localhost:8080", "http host name")
+)
 
-var store = NewURLStore("store.gob")
+var store *URLStore
 
 func main() {
+	flag.Parse()
+	store = NewURLStore(*dataFile)
 	http.HandleFunc("/", redirect)
 	http.HandleFunc("/add", add)
-	if err := http.ListenAndServe(":8080", nil); err != nil {
+	if err := http.ListenAndServe(*listenAddr, nil); err != nil {
 		panic(err)
 	}
 }
@@ -42,5 +44,12 @@ func add(w http.ResponseWriter, r *http.Request) {
 	}
 	// form 表单有数据，保存
 	key := store.Put(url)
-	fmt.Fprintf(w, "http://localhost:8080/%s", key)
+	fmt.Fprintf(w, "http://%s/%s", *hostname, key)
 }
+
+const AddForm = `
+<form method="POST" action="/add">
+URL: <input type="text" name="url">
+<input type="submit" value="Add">
+</form>
+`
