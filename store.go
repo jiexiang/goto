@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -9,6 +10,11 @@ import (
 )
 
 const saveQueueLength = 1000
+
+type Store interface {
+	Put(url, key *string) error
+	Get(key, url *string) error
+}
 
 type URLStore struct {
 	urls map[string]string
@@ -59,7 +65,7 @@ func (s *URLStore) load(filename string) (err error) {
 	for err == nil {
 		var r record
 		if err = d.Decode(&r); err == nil {
-			s.Set(r.Key, r.URL)
+			s.Set(&r.Key, &r.URL)
 		}
 		if err == io.EOF {
 			return nil
@@ -68,20 +74,24 @@ func (s *URLStore) load(filename string) (err error) {
 	return
 }
 
-func (s *URLStore) Get(key string) string {
+func (s *URLStore) Get(key, url *string) error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.urls[key]
+	if u, ok := s.urls[*key]; ok {
+		*url = u
+		return nil
+	}
+	return errors.New("key not found")
 }
 
-func (s *URLStore) Set(key, url string) bool {
+func (s *URLStore) Set(key, url *string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, present := s.urls[key]; present {
-		return false
+	if _, present := s.urls[*key]; present {
+		return errors.New("key already exists")
 	}
-	s.urls[key] = url
-	return true
+	s.urls[*key] = *url
+	return nil
 }
 
 func (s *URLStore) Count() int {
@@ -90,17 +100,18 @@ func (s *URLStore) Count() int {
 	return len(s.urls)
 }
 
-func (s *URLStore) Put(url string) string {
+func (s *URLStore) Put(url, key *string) error {
 	for {
-		key := genKey(s.Count())
-		if ok := s.Set(key, url); ok {
-			r := record{
-				Key: key,
-				URL: url,
-			}
-			s.save <- r
-			return key
+		*key = genKey(s.Count())
+		if err := s.Set(key, url); err == nil {
+			break
 		}
 	}
-	panic("??")
+	if s.save != nil {
+		s.save <- record{
+			Key: *key,
+			URL: *url,
+		}
+	}
+	return nil
 }
